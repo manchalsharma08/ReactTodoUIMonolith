@@ -1,8 +1,50 @@
-trigger: none 
+trigger: none
+
 pool: Default
 
-steps: 
-- task: PowerShell@2
-  inputs:
-    targetType: 'inline'
-    script: 'Write-Host "Hello World"'
+stages:
+- stage: BuildStage
+  jobs:
+  - job: BuildJob
+    steps:
+    - task: NodeTool@0
+      inputs:
+        versionSource: 'spec'
+        versionSpec: '16.x'
+    - task: PowerShell@2
+      inputs:
+        targetType: 'inline'
+        script: |
+          npm install
+          npm run build
+    - task: PowerShell@2
+      inputs:
+        targetType: 'inline'
+        script: |
+          Copy-Item -Path 'build\*' -Destination '$(Build.ArtifactStagingDirectory)' -Recurse -Force
+    - task: PublishPipelineArtifact@1
+      inputs:
+        targetPath: '$(Build.ArtifactStagingDirectory)'
+        artifactName: 'todo-ui'
+        publishLocation: 'pipeline'
+
+  - job: LoginJob
+    dependsOn: BuildJob
+    steps:
+    - download: current
+      artifact: todo-ui
+    - task: SSH@0
+      inputs:
+        sshEndpoint: 'VMLogin'
+        runOptions: 'inline'
+        inline: |
+          sudo apt-get update -y
+          sudo apt-get install -y nginx
+        readyTimeout: '20000'
+    - task: CopyFilesOverSSH@0
+      inputs:
+        sshEndpoint: 'VMLogin'
+        sourceFolder: '$(Pipeline.Workspace)/todo-ui'
+        contents: '**'
+        targetFolder: '/var/www/html'
+        readyTimeout: '20000'
